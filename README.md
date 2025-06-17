@@ -84,9 +84,9 @@ The confidence threshold is specified as a **percentile** (0-100%), where higher
 | Scene Type | Confidence Threshold | Reasoning |
 |------------|---------------------|-----------|
 | **Large outdoor scenes** (Tanks & Temples) | **65-80%** | Complex geometry, occlusions, varying lighting |
-| **Object-centric scenes** | **40-60%** | Simpler geometry, controlled conditions |
-| **Indoor scenes** | **50-70%** | Moderate complexity, some occlusions |
-| **Simple objects** | **30-50%** | Clean geometry, minimal noise |
+| **Object-centric scenes** | **0-50%** | Simpler geometry, controlled conditions |
+| **Indoor scenes** | **10-65%** | Moderate complexity, some occlusions |
+
 
 ### Examples
 
