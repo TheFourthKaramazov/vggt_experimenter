@@ -187,13 +187,22 @@ def process_scene(
     # 8) Generate point clouds from both depth and point predictions
     t_fuse = time.perf_counter()
     
-    # From depth maps (usually more accurate according to VGGT paper)
+    # Use VGGT's official depth unprojection function exactly like their demo
+    print("Unprojecting depth maps to world coordinates...")
+    # Add singleton dimension if needed for VGGT function compatibility: (S, H, W) -> (S, H, W, 1)
+    if depth_maps.ndim == 3:
+        depth_maps_with_dim = depth_maps[..., None]
+    else:
+        depth_maps_with_dim = depth_maps
+    depth_world_points = unproject_depth_map_to_point_map(depth_maps_with_dim, extrinsic, intrinsic)  # [S, H, W, 3]
+    
+    # From depth maps - use VGGT's proper unprojection
     depth_xyz_list, depth_rgb_list = [], []
     # From point maps (direct 3D prediction)
     point_xyz_list, point_rgb_list = [], []
     
-    for i, (orig_img, depth, d_conf, points, p_conf, K, ext) in enumerate(
-        zip(orig_imgs, depth_maps, depth_conf, point_maps, point_conf, intrinsic, extrinsic)
+    for i, (orig_img, depth, d_conf, points, p_conf, depth_world_pts) in enumerate(
+        zip(orig_imgs, depth_maps, depth_conf, point_maps, point_conf, depth_world_points)
     ):
         H, W = depth.shape
         
@@ -210,14 +219,15 @@ def process_scene(
             point_threshold = np.percentile(point_conf_flat, conf_threshold) if point_conf_flat.size > 0 else 0.0
         
         # Apply percentile-based filtering
-        depth_mask = (d_conf >= depth_threshold) & (d_conf > 1e-5)  # VGGT uses 1e-5 minimum
+        depth_mask = (d_conf >= depth_threshold) & (d_conf > 1e-5)
         point_mask = (p_conf >= point_threshold) & (p_conf > 1e-5)
         
         # Check for valid depth/points
         depth_valid = np.isfinite(depth) & (depth > 0)
         point_valid = np.isfinite(points).all(-1)
+        depth_world_valid = np.isfinite(depth_world_pts).all(-1)
         
-        depth_mask &= depth_valid
+        depth_mask &= depth_valid & depth_world_valid
         point_mask &= point_valid
         
         if not depth_mask.any() and not point_mask.any():
@@ -226,20 +236,9 @@ def process_scene(
         # Resize original image to match prediction resolution
         rgb = np.asarray(orig_img.resize((W, H), Image.LANCZOS))
         
-        # From depth maps - unproject to 3D
+        # From depth maps - use VGGT's properly unprojected world points
         if depth_mask.any():
-            # Create pixel coordinates
-            y, x = np.mgrid[0:H, 0:W]
-            pixels = np.stack([x, y, np.ones_like(x)], axis=-1).astype(np.float32)
-            
-            # Unproject using camera intrinsics
-            K_inv = np.linalg.inv(K)
-            rays = (pixels @ K_inv.T) * depth[..., None]  # [H, W, 3]
-            
-            # Transform to world coordinates
-            world_points = rays @ ext[:3, :3].T + ext[:3, 3]  # [H, W, 3]
-            
-            depth_xyz_list.append(world_points[depth_mask])
+            depth_xyz_list.append(depth_world_pts[depth_mask])
             depth_rgb_list.append(rgb[depth_mask])
         
         # From point maps - direct 3D points
